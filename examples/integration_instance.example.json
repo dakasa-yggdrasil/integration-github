@@ -1,0 +1,33 @@
+{
+  "apiVersion": "yggdrasil.io/v1alpha1",
+  "kind": "integration_instance",
+  "metadata": {
+    "name": "github-caller",
+    "namespace": "global",
+    "description": "Example GitHub integration instance for caller-token workflow dispatch."
+  },
+  "spec": {
+    "type_ref": {
+      "name": "github",
+      "namespace": "global"
+    },
+    "status": "active",
+    "owners": [
+      "team:platform"
+    ],
+    "credentials": {},
+    "config": {
+      "default_owner": "dakasa-co",
+      "default_ref": "main",
+      "api_base_url": "https://api.github.com"
+    },
+    "discovery": {
+      "enabled": false,
+      "mode": "manual"
+    },
+    "execution": {
+      "default_dry_run": false,
+      "max_batch_size": 10
+    }
+  }
+}
