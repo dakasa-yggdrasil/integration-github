@@ -3,6 +3,7 @@ services:
     build:
       context: ${INTEGRATION_GITHUB_BUILD_CONTEXT:-.}
       dockerfile: ${INTEGRATION_GITHUB_DOCKERFILE:-Dockerfile}
+    restart: unless-stopped
     env_file:
       - .env
     environment:
