@@ -1,84 +1,80 @@
-# integration-github
+<div align="center">
 
-`integration-github` is the GitHub runtime and governance plugin for Yggdrasil. It
-exposes GitHub operations through the generic `describe/execute` contract expected by
-`yggdrasil-core`.
+# `integration-github`
 
-This plugin is the `github / operations / api` entry in the Yggdrasil plugin catalog.
+**Yggdrasil adapter for GitHub** — dispatch workflows, manage repos and environments from declarative Yggdrasil workflows
 
-## Operations
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Container](https://img.shields.io/badge/ghcr.io-integration--github-181717.svg)](https://github.com/dakasa-yggdrasil/integration-github/pkgs/container/integration-github)
+[![Yggdrasil](https://img.shields.io/badge/part%20of-yggdrasil-brightgreen.svg)](https://github.com/dakasa-yggdrasil/yggdrasil-core)
 
-- `dispatch_workflow`
-- `create_repository`
-- `upsert_environment`
-- `grant_team_repository_access`
+</div>
 
-The adapter exposes `describe` and `execute` over RabbitMQ. The core resolves the configured
-`integration_instance`, forwards the request here, and the adapter calls the GitHub API.
+---
 
-This repository keeps its own local protocol types. The public wire contract is
-documented in [/Users/dakasa/projects/yggdrasil-core/docs/contracts](/Users/dakasa/projects/yggdrasil-core/docs/contracts), not imported from `yggdrasil-core/model`.
+## What it does
 
-## Repository shape
+GitHub operations plugin for Yggdrasil. Registers under the `github` family.
 
-- [/Users/dakasa/projects/integration-github/main.go](/Users/dakasa/projects/integration-github/main.go): worker bootstrap
-- [/Users/dakasa/projects/integration-github/controllers/message](/Users/dakasa/projects/integration-github/controllers/message): RabbitMQ RPC handlers
-- [/Users/dakasa/projects/integration-github/internal/adapter/spec.go](/Users/dakasa/projects/integration-github/internal/adapter/spec.go): adapter contract and GitHub dispatch logic
-- [/Users/dakasa/projects/integration-github/internal/adapter/spec_test.go](/Users/dakasa/projects/integration-github/internal/adapter/spec_test.go): adapter tests
-- [/Users/dakasa/projects/integration-github/examples](/Users/dakasa/projects/integration-github/examples): example manifests for the core
+| Operation | Purpose |
+|---|---|
+| `dispatch_workflow` | Trigger a GitHub Actions workflow run with typed inputs. |
+| `list_workflow_runs` | Enumerate runs of a given workflow. |
+| `describe_workflow_run` | Fetch a run's status + logs URL. |
+| `ensure_repository_environment` | Idempotently upsert a protected environment. |
+| `ensure_repository_secret` | Manage repository / environment secrets. |
 
-## Queues
+## Install
 
-- `yggdrasil.adapter.github.describe`
-- `yggdrasil.adapter.github.execute`
-
-## Auth model
-
-The adapter accepts the GitHub token in either place:
-
-- `request.auth.token`: preferred during the transition from `yggdrasil-api`
-- `integration_instance.spec.credentials.token`: good for service-managed credentials later
-
-If both are present, the caller token wins.
-
-## Config
-
-Supported `integration_instance.spec.config` fields:
-
-- `default_owner`
-- `default_ref`
-- `default_workflow`
-- `default_visibility`
-- `api_base_url`
-
-`api_base_url` defaults to `https://api.github.com`, but it can point to GitHub Enterprise later.
-
-## Environment
-
-- `BROKER_URL`: RabbitMQ connection string used by the worker itself
-
-## Running
-
-```bash
-go run .
+```sh
+yggdrasil install dakasa-yggdrasil/integration-github
 ```
 
-## Validation
+## Example workflow step
 
-```bash
-go mod tidy
+```yaml
+- id: deploy
+  use:
+    kind: integration
+    family: github
+    operation: dispatch_workflow
+  with:
+    repository: my-org/my-service
+    workflow: deploy.yml
+    ref: main
+    inputs:
+      environment: "{{ inputs.env }}"
+      image_tag: "{{ inputs.sha }}"
+```
+
+## Credentials
+
+- GitHub App (recommended): `app_id`, `installation_id`, `private_key_ref` (managed secret)
+- Personal Access Token (simpler for trial): `token` (managed secret)
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Core[yggdrasil-core] -- AMQP RPC --> Adapter[integration-github pod]
+    Adapter -- REST + GraphQL --> GitHub[GitHub API]
+```
+
+## Development
+
+```sh
 go test ./...
+docker build -t integration-github:dev .
 ```
 
-## GitHub dogfooding
+## License
 
-This repository now ships:
+Apache 2.0 — see [LICENSE](LICENSE).
 
-- `.github/workflows/emit-deploy-event.yml`
-- `.github/workflows/deploy.yml`
+---
 
-`emit-deploy-event.yml` uses the official GitHub Action
-[`dakasa-yggdrasil/action-emit-workflow-run`](https://github.com/dakasa-yggdrasil/action-emit-workflow-run)
-to send one workflow run request into `yggdrasil-core`. The core bootstrap
-workflow `global/ecosystem-repository-commit` then dispatches this repository's
-`deploy.yml`.
+<div align="center">
+
+Part of [Yggdrasil](https://github.com/dakasa-yggdrasil/yggdrasil-core) · [Catalog](https://github.com/dakasa-yggdrasil/yggdrasil-core/blob/main/docs/catalog.md)
+
+</div>
