@@ -1,3 +1,5 @@
+github.com/dakasa-yggdrasil/yggdrasil-sdk-go v0.1.0 h1:bnmQpqxyJoZB1XQ2u/88vFkO29O2EmoQr5LEgoyFwkk=
+github.com/dakasa-yggdrasil/yggdrasil-sdk-go v0.1.0/go.mod h1:ioc4KFweOm/Y30ppDBh1N8+/xk9YNq/Yl+DqBOBcQKY=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=

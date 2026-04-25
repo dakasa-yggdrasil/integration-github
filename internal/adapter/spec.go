@@ -2,25 +2,28 @@ package adapter
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/dakasa-yggdrasil/integration-github/internal/protocol"
 )
 
 const (
-	Provider                           = "github"
-	AdapterVersion                     = "1.0.0"
-	OperationDispatchWorkflow          = protocol.WorkflowDispatchOperation
-	OperationCatalogDiscover           = "catalog_discover"
-	OperationCreateRepository          = "create_repository"
-	OperationUpsertEnvironment         = "upsert_environment"
-	OperationGrantTeamRepositoryAccess = "grant_team_repository_access"
-	DefaultAPIBaseURL                  = "https://api.github.com"
-	DefaultRef                         = "main"
+	Provider                               = "github"
+	AdapterVersion                         = "1.0.0"
+	OperationDispatchWorkflow              = protocol.WorkflowDispatchOperation
+	OperationCatalogDiscover               = "catalog_discover"
+	OperationCreateRepository              = "create_repository"
+	OperationUpsertEnvironment             = "upsert_environment"
+	OperationGrantTeamRepositoryAccess     = "grant_team_repository_access"
+	OperationSetContainerPackageVisibility = "set_container_package_visibility"
+	DefaultAPIBaseURL                      = "https://api.github.com"
+	DefaultRef                             = "main"
 
 	QueueDescribe = "yggdrasil.adapter.github.describe"
 	QueueExecute  = "yggdrasil.adapter.github.execute"
@@ -32,23 +35,43 @@ var SupportedExecuteOperations = []string{
 	OperationCreateRepository,
 	OperationUpsertEnvironment,
 	OperationGrantTeamRepositoryAccess,
+	OperationSetContainerPackageVisibility,
 }
 
 var doGitHubRequest = doGitHubRequestHTTP
 
 // Describe returns the normalized contract exposed by this adapter.
+// Transport + addressing mirror what main.go chose at startup via
+// YGGDRASIL_TRANSPORT (default http_json). The core uses this to
+// verify the adapter's live shape matches the stored
+// integration_type manifest — mismatches abort execution before a
+// dispatch crosses the wire.
 func Describe() protocol.AdapterDescribeResponse {
+	transport := strings.ToLower(strings.TrimSpace(os.Getenv("YGGDRASIL_TRANSPORT")))
+	if transport == "" {
+		transport = "http"
+	}
+	adapterSpec := protocol.IntegrationAdapterSpec{
+		Version:        AdapterVersion,
+		TimeoutSeconds: 30,
+	}
+	switch transport {
+	case "amqp", "rabbitmq":
+		adapterSpec.Transport = "rabbitmq"
+		adapterSpec.Queues = protocol.IntegrationAdapterQueue{
+			Describe: QueueDescribe,
+			Execute:  QueueExecute,
+		}
+	default:
+		adapterSpec.Transport = "http_json"
+		adapterSpec.Endpoints = protocol.IntegrationAdapterRoute{
+			Describe: "/rpc/describe",
+			Execute:  "/rpc/execute",
+		}
+	}
 	return protocol.AdapterDescribeResponse{
-		Provider: Provider,
-		Adapter: protocol.IntegrationAdapterSpec{
-			Transport: "rabbitmq",
-			Version:   AdapterVersion,
-			Queues: protocol.IntegrationAdapterQueue{
-				Describe: QueueDescribe,
-				Execute:  QueueExecute,
-			},
-			TimeoutSeconds: 20,
-		},
+		Provider:     Provider,
+		Adapter:      adapterSpec,
 		Capabilities: []string{"describe", "execute"},
 		CredentialSchema: protocol.IntegrationSchemaSpec{
 			Mode: "inline",
@@ -96,6 +119,10 @@ func Describe() protocol.AdapterDescribeResponse {
 					Description: "GitHub API base URL, useful for GitHub Enterprise.",
 					Default:     DefaultAPIBaseURL,
 				},
+				"base_url": {
+					Type:        "string",
+					Description: "HTTP adapter base URL used when the integration_type declares transport=http_json.",
+				},
 			},
 		},
 		ResourceTypes: []protocol.IntegrationResourceType{
@@ -126,6 +153,13 @@ func Describe() protocol.AdapterDescribeResponse {
 				IdentityTemplate: "catalog_entry.{name}",
 				Discoverable:     false,
 				DefaultActions:   []string{OperationCatalogDiscover},
+			},
+			{
+				Name:             "package",
+				CanonicalPrefix:  "thirdparty.github.package",
+				IdentityTemplate: "package.{owner_type}.{owner}.{name}",
+				Discoverable:     false,
+				DefaultActions:   []string{OperationSetContainerPackageVisibility},
 			},
 		},
 		ActionCatalog: describeActionCatalog(),
@@ -244,6 +278,29 @@ func Execute(req protocol.AdapterExecuteIntegrationRequest) (protocol.AdapterExe
 		return upsertEnvironment(req)
 	case OperationGrantTeamRepositoryAccess:
 		return grantTeamRepositoryAccess(req)
+	case OperationSetContainerPackageVisibility:
+		decoded, err := decodeSetContainerPackageVisibilityRequest(req)
+		if err != nil {
+			return protocol.AdapterExecuteIntegrationResponse{}, err
+		}
+		response, err := SetVisibility(context.Background(), decoded)
+		if err != nil {
+			return protocol.AdapterExecuteIntegrationResponse{}, err
+		}
+		return protocol.AdapterExecuteIntegrationResponse{
+			Operation:  OperationSetContainerPackageVisibility,
+			Capability: OperationSetContainerPackageVisibility,
+			Status:     response.Status,
+			Output: map[string]any{
+				"owner_type":   decoded.OwnerType,
+				"owner":        decoded.Owner,
+				"package_name": decoded.PackageName,
+				"visibility":   decoded.Visibility,
+			},
+			Metadata: map[string]any{
+				"provider": Provider,
+			},
+		}, nil
 	default:
 		return protocol.AdapterExecuteIntegrationResponse{}, fmt.Errorf("unsupported operation %q", req.Operation)
 	}
@@ -280,7 +337,60 @@ func describeActionCatalog() []protocol.IntegrationActionDefinition {
 			ResourceTypes: []string{"team_repository_access"},
 			Idempotent:    true,
 		},
+		{
+			Name:          OperationSetContainerPackageVisibility,
+			Description:   "Flip the visibility (public/private/internal) of a GitHub container/OCI package.",
+			ResourceTypes: []string{"package"},
+			Idempotent:    true,
+		},
 	}
+}
+
+func decodeSetContainerPackageVisibilityRequest(req protocol.AdapterExecuteIntegrationRequest) (protocol.AdapterSetContainerPackageVisibilityRequest, error) {
+	out := protocol.AdapterSetContainerPackageVisibilityRequest{
+		Operation:   OperationSetContainerPackageVisibility,
+		Auth:        req.Auth,
+		Integration: req.Integration,
+		OwnerType:   strings.TrimSpace(firstString(req.Input, []string{"owner_type"})),
+		Owner:       strings.TrimSpace(firstString(req.Input, []string{"owner"})),
+		PackageName: strings.TrimSpace(firstString(req.Input, []string{"package_name"})),
+		Visibility:  strings.TrimSpace(firstString(req.Input, []string{"visibility"})),
+	}
+	// Normalize Yggdrasil-convention singulars to GitHub API plurals.
+	switch out.OwnerType {
+	case "org":
+		out.OwnerType = "orgs"
+	case "user":
+		out.OwnerType = "users"
+	}
+	if out.OwnerType == "" || out.Owner == "" || out.PackageName == "" || out.Visibility == "" {
+		return out, fmt.Errorf("set_container_package_visibility requires owner_type, owner, package_name, visibility")
+	}
+	return out, nil
+}
+
+// SetVisibility flips a ghcr/container package visibility. Resolves
+// credentials and base URL via the same helper used by all other ops, then
+// routes through doGitHubRequest so the hook is swappable in tests.
+func SetVisibility(_ context.Context, req protocol.AdapterSetContainerPackageVisibilityRequest) (protocol.AdapterOperationStatusResponse, error) {
+	// Reuse the canonical token + base-URL resolver so per-call Auth["token"]
+	// overrides, instance Credentials, and api_base_url all apply consistently.
+	executeReq := protocol.AdapterExecuteIntegrationRequest{
+		Operation:   OperationSetContainerPackageVisibility,
+		Auth:        req.Auth,
+		Integration: req.Integration,
+	}
+	apiBaseURL, token, _, _, err := resolveExecuteConfig(executeReq)
+	if err != nil {
+		return protocol.AdapterOperationStatusResponse{}, err
+	}
+
+	path := fmt.Sprintf("/%s/%s/packages/container/%s", req.OwnerType, req.Owner, req.PackageName)
+	body := map[string]string{"visibility": req.Visibility}
+	if _, _, err := doGitHubRequest(apiBaseURL, token, http.MethodPatch, path, body, http.StatusNoContent); err != nil {
+		return protocol.AdapterOperationStatusResponse{}, err
+	}
+	return protocol.AdapterOperationStatusResponse{Status: "succeeded"}, nil
 }
 
 func createRepository(req protocol.AdapterExecuteIntegrationRequest) (protocol.AdapterExecuteIntegrationResponse, error) {
@@ -847,11 +957,11 @@ func catalogItemFromRepository(repository map[string]any) map[string]any {
 	}
 
 	item := map[string]any{
-		"kind":        kind,
-		"name":        deriveCatalogName(kind, repoName),
+		"kind":         kind,
+		"name":         deriveCatalogName(kind, repoName),
 		"display_name": displayName,
-		"description": firstString(repository, []string{"description"}),
-		"repository":  firstString(repository, []string{"html_url"}),
+		"description":  firstString(repository, []string{"description"}),
+		"repository":   firstString(repository, []string{"html_url"}),
 		"metadata": map[string]any{
 			"topics":            topics,
 			"custom_properties": customProperties,
@@ -977,6 +1087,7 @@ func doGitHubRequestHTTP(apiBaseURL, token, method, path string, body any, expec
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "integration-github")
 
 	resp, err := http.DefaultClient.Do(req)
