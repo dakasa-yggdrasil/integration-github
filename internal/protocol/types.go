@@ -214,18 +214,6 @@ type AdapterDispatchWorkflowResponse struct {
 	Metadata  map[string]any       `json:"metadata,omitempty"`
 }
 
-// AdapterSetContainerPackageVisibilityRequest is the typed request for the
-// set_container_package_visibility operation.
-type AdapterSetContainerPackageVisibilityRequest struct {
-	Operation   string                           `json:"operation"`
-	Auth        map[string]any                   `json:"auth,omitempty"`
-	Integration AdapterExecuteIntegrationContext `json:"integration,omitempty"`
-	OwnerType   string                           `json:"owner_type"`
-	Owner       string                           `json:"owner"`
-	PackageName string                           `json:"package_name"`
-	Visibility  string                           `json:"visibility"`
-}
-
 // AdapterOperationStatusResponse is a minimal response for side-effect-only
 // operations that produce no domain output beyond status. Named consistently
 // with AdapterDispatchWorkflowResponse and AdapterExecuteIntegrationResponse.
