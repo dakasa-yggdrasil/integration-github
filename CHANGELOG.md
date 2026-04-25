@@ -2,6 +2,11 @@
 
 All notable changes to integration-github are documented here.
 
+## [Unreleased] — yanked
+
+### Removed
+- `set_container_package_visibility` operation. The implementation called `PATCH https://api.github.com/orgs/{org}/packages/container/{name}` which does NOT exist in GitHub's REST API (verified against live API and `https://docs.github.com/en/rest/packages/packages?apiVersion=2022-11-28`). The httptest mocks accepted any endpoint, masking the bug. GitHub does not expose package visibility mutation via REST — it must be done in the UI. **No automation path replaces this op.**
+
 ## [Unreleased]
 
 ### Added

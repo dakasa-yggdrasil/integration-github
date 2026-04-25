@@ -1,9 +1,7 @@
 package adapter
 
 import (
-	"context"
 	"encoding/json"
-	"net/http"
 	"testing"
 
 	"github.com/dakasa-yggdrasil/integration-github/internal/protocol"
@@ -47,16 +45,6 @@ func TestDescribeReturnsRabbitMQWhenTransportAMQP(t *testing.T) {
 	if resp.Adapter.Queues.Describe == "" {
 		t.Error("queues.describe must be set under amqp")
 	}
-}
-
-func TestDescribeListsSetContainerPackageVisibility(t *testing.T) {
-	resp := Describe()
-	for _, action := range resp.ActionCatalog {
-		if action.Name == "set_container_package_visibility" {
-			return
-		}
-	}
-	t.Error("action catalog must include set_container_package_visibility")
 }
 
 func TestSupportedExecuteOperationsStayAligned(t *testing.T) {
@@ -338,64 +326,3 @@ func TestCatalogDiscoverUsesCustomPropertiesAndTopics(t *testing.T) {
 	}
 }
 
-func TestSetContainerPackageVisibilityDispatch(t *testing.T) {
-	var gotMethod, gotPath string
-	var gotBody map[string]string
-	origHook := doGitHubRequest
-	doGitHubRequest = func(baseURL, token, method, path string, body any, _ ...int) ([]byte, int, error) {
-		gotMethod = method
-		gotPath = path
-		if m, ok := body.(map[string]string); ok {
-			gotBody = m
-		}
-		if token != "tk" {
-			t.Errorf("token = %q, want tk", token)
-		}
-		return []byte(""), 204, nil
-	}
-	t.Cleanup(func() { doGitHubRequest = origHook })
-
-	// Verify SetVisibility itself also uses the hook (not just via Execute).
-	_, _ = SetVisibility(context.Background(), protocol.AdapterSetContainerPackageVisibilityRequest{
-		Operation:   OperationSetContainerPackageVisibility,
-		OwnerType:   "orgs",
-		Owner:       "dakasa-yggdrasil",
-		PackageName: "yggdrasil-core",
-		Visibility:  "public",
-		Integration: protocol.AdapterExecuteIntegrationContext{
-			InstanceSpec: protocol.IntegrationInstanceManifestSpec{
-				Credentials: map[string]any{"github_token": "tk"},
-			},
-		},
-	})
-
-	resp, err := Execute(protocol.AdapterExecuteIntegrationRequest{
-		Operation: OperationSetContainerPackageVisibility,
-		Input: map[string]any{
-			"owner_type":   "org", // singular — must be normalized to "orgs"
-			"owner":        "dakasa-yggdrasil",
-			"package_name": "yggdrasil-core",
-			"visibility":   "public",
-		},
-		Integration: protocol.AdapterExecuteIntegrationContext{
-			InstanceSpec: protocol.IntegrationInstanceManifestSpec{
-				Credentials: map[string]any{"github_token": "tk"},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if resp.Status != "succeeded" {
-		t.Fatalf("status = %q, want succeeded", resp.Status)
-	}
-	if gotMethod != http.MethodPatch {
-		t.Errorf("method = %q, want PATCH", gotMethod)
-	}
-	if gotPath != "/orgs/dakasa-yggdrasil/packages/container/yggdrasil-core" {
-		t.Errorf("path = %q", gotPath)
-	}
-	if gotBody["visibility"] != "public" {
-		t.Errorf("body.visibility = %q", gotBody["visibility"])
-	}
-}
