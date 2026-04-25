@@ -8,6 +8,7 @@ import (
 )
 
 func TestDescribe(t *testing.T) {
+	t.Setenv("YGGDRASIL_TRANSPORT", "amqp")
 	response := Describe()
 
 	if response.Provider != Provider {
@@ -22,6 +23,38 @@ func TestDescribe(t *testing.T) {
 	if len(response.ActionCatalog) != len(SupportedExecuteOperations) {
 		t.Fatalf("action catalog = %#v, want %d actions", response.ActionCatalog, len(SupportedExecuteOperations))
 	}
+}
+
+func TestDescribeReturnsHTTPJSONByDefault(t *testing.T) {
+	t.Setenv("YGGDRASIL_TRANSPORT", "")
+	resp := Describe()
+	if resp.Adapter.Transport != "http_json" {
+		t.Errorf("transport = %q, want http_json", resp.Adapter.Transport)
+	}
+	if resp.Adapter.Endpoints.Describe != "/rpc/describe" {
+		t.Errorf("describe endpoint = %q", resp.Adapter.Endpoints.Describe)
+	}
+}
+
+func TestDescribeReturnsRabbitMQWhenTransportAMQP(t *testing.T) {
+	t.Setenv("YGGDRASIL_TRANSPORT", "amqp")
+	resp := Describe()
+	if resp.Adapter.Transport != "rabbitmq" {
+		t.Errorf("transport = %q, want rabbitmq", resp.Adapter.Transport)
+	}
+	if resp.Adapter.Queues.Describe == "" {
+		t.Error("queues.describe must be set under amqp")
+	}
+}
+
+func TestDescribeListsSetContainerPackageVisibility(t *testing.T) {
+	resp := Describe()
+	for _, action := range resp.ActionCatalog {
+		if action.Name == "set_container_package_visibility" {
+			return
+		}
+	}
+	t.Error("action catalog must include set_container_package_visibility")
 }
 
 func TestSupportedExecuteOperationsStayAligned(t *testing.T) {

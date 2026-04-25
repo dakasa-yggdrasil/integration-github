@@ -22,8 +22,21 @@ type ManifestReference struct {
 type IntegrationAdapterSpec struct {
 	Transport      string                  `json:"transport"`
 	Version        string                  `json:"version"`
-	Queues         IntegrationAdapterQueue `json:"queues"`
+	Queues         IntegrationAdapterQueue `json:"queues,omitempty"`
+	Endpoints      IntegrationAdapterRoute `json:"endpoints,omitempty"`
 	TimeoutSeconds int                     `json:"timeout_seconds,omitempty"`
+}
+
+// IntegrationAdapterRoute mirrors the core's http_json endpoint
+// addressing: path (relative) per capability. Populated instead of
+// Queues when Transport is "http_json".
+type IntegrationAdapterRoute struct {
+	Describe string `json:"describe,omitempty"`
+	Discover string `json:"discover,omitempty"`
+	Read     string `json:"read,omitempty"`
+	Execute  string `json:"execute,omitempty"`
+	Sync     string `json:"sync,omitempty"`
+	Health   string `json:"health,omitempty"`
 }
 
 type IntegrationAdapterQueue struct {
@@ -199,4 +212,22 @@ type AdapterDispatchWorkflowResponse struct {
 	Status    string               `json:"status"`
 	Workflow  WorkflowDispatchSpec `json:"workflow,omitempty"`
 	Metadata  map[string]any       `json:"metadata,omitempty"`
+}
+
+// AdapterSetContainerPackageVisibilityRequest is the typed request for the
+// set_container_package_visibility operation.
+type AdapterSetContainerPackageVisibilityRequest struct {
+	Operation   string                           `json:"operation"`
+	Integration AdapterExecuteIntegrationContext `json:"integration,omitempty"`
+	OwnerType   string                           `json:"owner_type"`
+	Owner       string                           `json:"owner"`
+	PackageName string                           `json:"package_name"`
+	Visibility  string                           `json:"visibility"`
+}
+
+// SimpleStatusResponse is a minimal response for side-effect-only
+// operations that produce no domain output beyond status.
+type SimpleStatusResponse struct {
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
 }
