@@ -349,11 +349,19 @@ func describeActionCatalog() []protocol.IntegrationActionDefinition {
 func decodeSetContainerPackageVisibilityRequest(req protocol.AdapterExecuteIntegrationRequest) (protocol.AdapterSetContainerPackageVisibilityRequest, error) {
 	out := protocol.AdapterSetContainerPackageVisibilityRequest{
 		Operation:   OperationSetContainerPackageVisibility,
+		Auth:        req.Auth,
 		Integration: req.Integration,
 		OwnerType:   strings.TrimSpace(firstString(req.Input, []string{"owner_type"})),
 		Owner:       strings.TrimSpace(firstString(req.Input, []string{"owner"})),
 		PackageName: strings.TrimSpace(firstString(req.Input, []string{"package_name"})),
 		Visibility:  strings.TrimSpace(firstString(req.Input, []string{"visibility"})),
+	}
+	// Normalize Yggdrasil-convention singulars to GitHub API plurals.
+	switch out.OwnerType {
+	case "org":
+		out.OwnerType = "orgs"
+	case "user":
+		out.OwnerType = "users"
 	}
 	if out.OwnerType == "" || out.Owner == "" || out.PackageName == "" || out.Visibility == "" {
 		return out, fmt.Errorf("set_container_package_visibility requires owner_type, owner, package_name, visibility")
@@ -361,21 +369,28 @@ func decodeSetContainerPackageVisibilityRequest(req protocol.AdapterExecuteInteg
 	return out, nil
 }
 
-// SetVisibility flips a ghcr/container package visibility. Reads the GitHub
-// PAT from the instance Credentials map (key "github_token"), then delegates
-// to SetContainerPackageVisibility. The decoder validates the inputs.
-func SetVisibility(_ context.Context, req protocol.AdapterSetContainerPackageVisibilityRequest) (protocol.SimpleStatusResponse, error) {
-	instanceCredentials := req.Integration.InstanceSpec.Credentials
-	token, _ := instanceCredentials["github_token"].(string)
-	if token == "" {
-		if t, _ := instanceCredentials["token"].(string); t != "" {
-			token = t
-		}
+// SetVisibility flips a ghcr/container package visibility. Resolves
+// credentials and base URL via the same helper used by all other ops, then
+// routes through doGitHubRequest so the hook is swappable in tests.
+func SetVisibility(_ context.Context, req protocol.AdapterSetContainerPackageVisibilityRequest) (protocol.AdapterOperationStatusResponse, error) {
+	// Reuse the canonical token + base-URL resolver so per-call Auth["token"]
+	// overrides, instance Credentials, and api_base_url all apply consistently.
+	executeReq := protocol.AdapterExecuteIntegrationRequest{
+		Operation:   OperationSetContainerPackageVisibility,
+		Auth:        req.Auth,
+		Integration: req.Integration,
 	}
-	if err := SetContainerPackageVisibility(nil, token, req.OwnerType, req.Owner, req.PackageName, req.Visibility); err != nil {
-		return protocol.SimpleStatusResponse{Status: "failed", Error: err.Error()}, err
+	apiBaseURL, token, _, _, err := resolveExecuteConfig(executeReq)
+	if err != nil {
+		return protocol.AdapterOperationStatusResponse{}, err
 	}
-	return protocol.SimpleStatusResponse{Status: "succeeded"}, nil
+
+	path := fmt.Sprintf("/%s/%s/packages/container/%s", req.OwnerType, req.Owner, req.PackageName)
+	body := map[string]string{"visibility": req.Visibility}
+	if _, _, err := doGitHubRequest(apiBaseURL, token, http.MethodPatch, path, body, http.StatusNoContent); err != nil {
+		return protocol.AdapterOperationStatusResponse{}, err
+	}
+	return protocol.AdapterOperationStatusResponse{Status: "succeeded"}, nil
 }
 
 func createRepository(req protocol.AdapterExecuteIntegrationRequest) (protocol.AdapterExecuteIntegrationResponse, error) {
@@ -1072,6 +1087,7 @@ func doGitHubRequestHTTP(apiBaseURL, token, method, path string, body any, expec
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "integration-github")
 
 	resp, err := http.DefaultClient.Do(req)
