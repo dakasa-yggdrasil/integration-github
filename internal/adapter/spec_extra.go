@@ -64,7 +64,7 @@ func createRunnerToken(req protocol.AdapterExecuteIntegrationRequest) (protocol.
 	return protocol.AdapterExecuteIntegrationResponse{
 		Operation:  OperationCreateRunnerToken,
 		Capability: OperationCreateRunnerToken,
-		Status:     "issued",
+		Status:     "applied",
 		Output: map[string]any{
 			"registration_token": parsed.Token,
 			"expires_at":         parsed.ExpiresAt,
