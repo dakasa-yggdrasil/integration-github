@@ -14,12 +14,14 @@ import (
 
 const (
 	Provider                           = "github"
-	AdapterVersion                     = "1.1.1"
+	AdapterVersion                     = "1.2.0"
 	OperationDispatchWorkflow          = protocol.WorkflowDispatchOperation
 	OperationCatalogDiscover           = "catalog_discover"
 	OperationCreateRepository          = "create_repository"
 	OperationUpsertEnvironment         = "upsert_environment"
 	OperationGrantTeamRepositoryAccess = "grant_team_repository_access"
+	OperationCreateRunnerToken         = "create_runner_token"
+	OperationListRunners               = "list_runners"
 	DefaultAPIBaseURL                  = "https://api.github.com"
 	DefaultRef                         = "main"
 
@@ -33,6 +35,8 @@ var SupportedExecuteOperations = []string{
 	OperationCreateRepository,
 	OperationUpsertEnvironment,
 	OperationGrantTeamRepositoryAccess,
+	OperationCreateRunnerToken,
+	OperationListRunners,
 }
 
 var doGitHubRequest = doGitHubRequestHTTP
@@ -151,6 +155,20 @@ func Describe() protocol.AdapterDescribeResponse {
 				Discoverable:     false,
 				DefaultActions:   []string{OperationCatalogDiscover},
 			},
+			{
+				Name:             "runner_registration",
+				CanonicalPrefix:  "thirdparty.github.runner_registration",
+				IdentityTemplate: "runner_registration.{scope}.{owner}",
+				Discoverable:     false,
+				DefaultActions:   []string{OperationCreateRunnerToken},
+			},
+			{
+				Name:             "runner_pool",
+				CanonicalPrefix:  "thirdparty.github.runner_pool",
+				IdentityTemplate: "runner_pool.{scope}.{owner}",
+				Discoverable:     true,
+				DefaultActions:   []string{OperationListRunners},
+			},
 		},
 		ActionCatalog: describeActionCatalog(),
 		Discovery: protocol.IntegrationDiscoverySpec{
@@ -268,6 +286,10 @@ func Execute(req protocol.AdapterExecuteIntegrationRequest) (protocol.AdapterExe
 		return upsertEnvironment(req)
 	case OperationGrantTeamRepositoryAccess:
 		return grantTeamRepositoryAccess(req)
+	case OperationCreateRunnerToken:
+		return createRunnerToken(req)
+	case OperationListRunners:
+		return listRunners(req)
 	default:
 		return protocol.AdapterExecuteIntegrationResponse{}, fmt.Errorf("unsupported operation %q", req.Operation)
 	}
@@ -302,6 +324,18 @@ func describeActionCatalog() []protocol.IntegrationActionDefinition {
 			Name:          OperationGrantTeamRepositoryAccess,
 			Description:   "Ensure one GitHub team has the desired permission on a repository.",
 			ResourceTypes: []string{"team_repository_access"},
+			Idempotent:    true,
+		},
+		{
+			Name:          OperationCreateRunnerToken,
+			Description:   "Issue a registration token for a self-hosted runner (org or repo scoped).",
+			ResourceTypes: []string{"runner_registration"},
+			Idempotent:    false,
+		},
+		{
+			Name:          OperationListRunners,
+			Description:   "List self-hosted runners with optional label/min-count expectation gating.",
+			ResourceTypes: []string{"runner_pool"},
 			Idempotent:    true,
 		},
 	}
