@@ -22,6 +22,7 @@ const (
 	OperationGrantTeamRepositoryAccess = "grant_team_repository_access"
 	OperationCreateRunnerToken         = "create_runner_token"
 	OperationListRunners               = "list_runners"
+	OperationCreatePullRequest         = "create_pull_request"
 	DefaultAPIBaseURL                  = "https://api.github.com"
 	DefaultRef                         = "main"
 
@@ -37,6 +38,7 @@ var SupportedExecuteOperations = []string{
 	OperationGrantTeamRepositoryAccess,
 	OperationCreateRunnerToken,
 	OperationListRunners,
+	OperationCreatePullRequest,
 }
 
 var doGitHubRequest = doGitHubRequestHTTP
@@ -290,6 +292,8 @@ func Execute(req protocol.AdapterExecuteIntegrationRequest) (protocol.AdapterExe
 		return createRunnerToken(req)
 	case OperationListRunners:
 		return listRunners(req)
+	case OperationCreatePullRequest:
+		return createPullRequest(req)
 	default:
 		return protocol.AdapterExecuteIntegrationResponse{}, fmt.Errorf("unsupported operation %q", req.Operation)
 	}
@@ -337,6 +341,12 @@ func describeActionCatalog() []protocol.IntegrationActionDefinition {
 			Description:   "List self-hosted runners with optional label/min-count expectation gating.",
 			ResourceTypes: []string{"runner_pool"},
 			Idempotent:    true,
+		},
+		{
+			Name:          OperationCreatePullRequest,
+			Description:   "Atomically commit a set of files to a feature branch and open a pull request against the base branch. Used by Heimdall to land code-fix proposals automatically while keeping a human-in-the-loop merge.",
+			ResourceTypes: []string{"repository"},
+			Idempotent:    false,
 		},
 	}
 }
